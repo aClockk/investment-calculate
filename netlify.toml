@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA 前端路由：所有未匹配到静态文件的路径都回退到 index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
