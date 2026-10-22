@@ -135,13 +135,12 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
       const newReturnedPrincipal = inv.returnedPrincipal + principalAdd;
       const newReturnedInterest = inv.returnedInterest + interestAdd;
       const newRemainingPrincipal = Math.max(0, inv.principal - newReturnedPrincipal);
-      const newStatus: InvestmentRecord['status'] = newRemainingPrincipal <= 0 ? 'settled' : 'unsettled';
 
+      // 状态不再自动变更，仅能手动修改
       onUpdateInvestment(inv.id, {
         returnedPrincipal: newReturnedPrincipal,
         returnedInterest: newReturnedInterest,
         remainingPrincipal: newRemainingPrincipal,
-        status: newStatus,
       });
     });
 
@@ -267,7 +266,11 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
                             {item.settlementType === 'lump_sum' ? '一次性结' : '一直结'}
                           </span>
                         </div>
-                        <span className="font-medium">{formatCurrency(item.amount)}</span>
+                        <span className="font-medium">
+                          {item.settlementType === 'continuous' && item.times && item.times > 1 && item.perTimeProfit !== undefined
+                            ? `${formatCurrency(item.perTimeProfit)} × ${item.times}次 = ${formatCurrency(item.amount)}`
+                            : formatCurrency(item.amount)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -314,7 +317,7 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
             </p>
 
             <div className="rounded-lg border overflow-x-auto">
-              <Table>
+              <Table className="min-w-[640px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>项目名称</TableHead>

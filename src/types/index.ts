@@ -81,5 +81,8 @@ export interface MonthlyProfit {
     projectName: string;
     amount: number;
     settlementType: SettlementType;
+    // 「一直结」且每月结算多次时，用于展示「单次利润 × 次数 = 总和」
+    perTimeProfit?: number;
+    times?: number;
   }[];
 }

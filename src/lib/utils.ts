@@ -27,7 +27,7 @@ export function getRepaymentTypeLabel(type: RepaymentType): string {
     equal_interest: '等额本息',
     equal_principal: '等额本金',
     interest_first: '先息后本',
-    lump_sum: '到期一次性',
+    lump_sum: '一次结清',
   };
   return map[type] || type;
 }

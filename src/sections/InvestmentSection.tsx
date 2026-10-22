@@ -31,12 +31,13 @@ import { formatCurrency, formatDate, getInvestmentStatusLabel, getSettlementType
 
 interface InvestmentSectionProps {
   records: InvestmentRecord[];
+  unsettledPool: number;
   onAdd: (record: Omit<InvestmentRecord, 'id' | 'createdAt'>) => void;
   onUpdate: (id: string, updates: Partial<Omit<InvestmentRecord, 'id' | 'createdAt'>>) => void;
   onDelete: (id: string) => void;
 }
 
-export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: InvestmentSectionProps) {
+export function InvestmentSection({ records, unsettledPool, onAdd, onUpdate, onDelete }: InvestmentSectionProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<InvestmentRecord | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -135,7 +136,6 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
     totalPrincipal: records.reduce((s, r) => s + r.principal, 0),
     totalReturnedPrincipal: records.reduce((s, r) => s + r.returnedPrincipal, 0),
     totalReturnedInterest: records.reduce((s, r) => s + r.returnedInterest, 0),
-    remainingPrincipal: records.reduce((s, r) => s + r.remainingPrincipal, 0),
   };
 
   const sortedRecords = [...records].sort((a, b) => b.createdAt - a.createdAt);
@@ -157,8 +157,8 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
           <p className="text-lg font-bold text-green-600">{formatCurrency(stats.totalReturnedInterest)}</p>
         </div>
         <div className="bg-white rounded-xl border p-4 shadow-sm">
-          <p className="text-xs text-muted-foreground mb-1">剩余未回本金</p>
-          <p className="text-lg font-bold text-orange-600">{formatCurrency(stats.remainingPrincipal)}</p>
+          <p className="text-xs text-muted-foreground mb-1">未结清本金</p>
+          <p className="text-lg font-bold text-red-600">{formatCurrency(unsettledPool)}</p>
         </div>
       </div>
 
@@ -186,7 +186,6 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
               <TableHead className="text-right">利息点数</TableHead>
               <TableHead className="text-right">已回本金</TableHead>
               <TableHead className="text-right">已收利息</TableHead>
-              <TableHead className="text-right">剩余本金</TableHead>
               <TableHead className="hidden sm:table-cell">日期</TableHead>
               <TableHead className="text-right">操作</TableHead>
             </TableRow>
@@ -194,7 +193,7 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
           <TableBody>
             {sortedRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   暂无投资记录
                 </TableCell>
               </TableRow>
@@ -212,13 +211,6 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
                   <TableCell className="text-right text-purple-600 font-medium">{record.interestRate}%</TableCell>
                   <TableCell className="text-right text-blue-600">{formatCurrency(record.returnedPrincipal)}</TableCell>
                   <TableCell className="text-right text-green-600 font-medium">{formatCurrency(record.returnedInterest)}</TableCell>
-                  <TableCell className="text-right">
-                    {record.remainingPrincipal > 0 ? (
-                      <span className="text-orange-600">{formatCurrency(record.remainingPrincipal)}</span>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
                   <TableCell className="text-sm hidden sm:table-cell">
                     {formatDate(record.startDate)}
                     {record.endDate && ` ~ ${formatDate(record.endDate)}`}
@@ -328,7 +320,7 @@ export function InvestmentSection({ records, onAdd, onUpdate, onDelete }: Invest
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>开始日期</Label>
                 <Input type="date" value={formData.startDate} onChange={e => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required />

@@ -2,10 +2,46 @@ import { useCallback } from 'react';
 import { useLocalStorage } from './useLocalStorage';
 import type { CapitalRecord, RepaymentRecord, InvestmentRecord, ProfitSummary, MonthlyProfit } from '@/types';
 
-const CAPITAL_KEY = 'invest_capital_records_v6';
-const REPAYMENT_KEY = 'invest_repayment_records_v6';
-const INVESTMENT_KEY = 'invest_investment_records_v6';
-const INIT_KEY = 'invest_data_initialized_v6';
+const CAPITAL_KEY = 'invest_capital_records_v7';
+const REPAYMENT_KEY = 'invest_repayment_records_v7';
+const INVESTMENT_KEY = 'invest_investment_records_v7';
+const INIT_KEY = 'invest_data_initialized_v7';
+const UNSETTLED_POOL_KEY = 'invest_unsettled_pool_v7';
+const OWN_CAPITAL_BASE_KEY = 'invest_own_capital_base_v7';
+
+// 自有本金基数（含快照），作为数据一部分持久化，可随导出/导入/清空变动。
+// base = 初始数据下“总本金 - 贷款剩余应还” = 1270000 - 717181.88 = 552818.12；
+// 快照为该基数对应时种子数据已存在的累计流水，只计算此后增量，避免重复扣减。
+interface OwnCapitalBase {
+  base: number;
+  snapshotProfit: number;
+  snapshotInterest: number;
+  snapshotPrincipal: number;
+}
+const DEFAULT_OWN_CAPITAL_BASE: OwnCapitalBase = {
+  base: 552818.12,
+  snapshotProfit: 0,
+  snapshotInterest: 11256.32,
+  snapshotPrincipal: 70378.80,
+};
+
+// 计算项目「应收利息总和」，用于结清时判断本+利是否收全：
+// - 一次性结：本金 × 利息点数
+// - 一直结：本金 × 利息点数 × 每月结算次数 × 经过月数（开始日期到今天，至少 1 个月）
+function getExpectedTotalInterest(inv: InvestmentRecord): number {
+  const rate = inv.interestRate / 100;
+  if (inv.settlementType === 'lump_sum') {
+    return inv.principal * rate;
+  }
+  const start = new Date(inv.startDate);
+  const now = new Date();
+  let months = 1;
+  if (!isNaN(start.getTime())) {
+    months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
+    if (months < 1) months = 1;
+  }
+  return inv.principal * rate * inv.settlementFrequency * months;
+}
 
 export interface MonthlyPaymentDetail {
   month: string;
@@ -26,6 +62,10 @@ export function useInvestData() {
   const [repaymentRecords, setRepaymentRecords] = useLocalStorage<RepaymentRecord[]>(REPAYMENT_KEY, []);
   const [investmentRecords, setInvestmentRecords] = useLocalStorage<InvestmentRecord[]>(INVESTMENT_KEY, []);
   const [initialized, setInitialized] = useLocalStorage<boolean>(INIT_KEY, false);
+  // 未结清本金池（全局持久化，初始 0）
+  const [unsettledPool, setUnsettledPool] = useLocalStorage<number>(UNSETTLED_POOL_KEY, 0);
+  // 自有本金基数（持久化，可被导出/导入/清空）
+  const [ownCapitalBase, setOwnCapitalBase] = useLocalStorage<OwnCapitalBase>(OWN_CAPITAL_BASE_KEY, DEFAULT_OWN_CAPITAL_BASE);
 
   const generateId = () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -68,12 +108,24 @@ export function useInvestData() {
   const addInvestment = useCallback((record: Omit<InvestmentRecord, 'id' | 'createdAt'>) => {
     const newRecord: InvestmentRecord = { ...record, id: generateId(), createdAt: Date.now() };
     setInvestmentRecords(prev => [...prev, newRecord]);
+    // 未结清本金池优先垫付新项目：按新项目投入本金冲减，不足则归 0（不改变新项目自身本金）
+    setUnsettledPool(prev => Math.max(0, prev - newRecord.principal));
     return newRecord.id;
-  }, [setInvestmentRecords]);
+  }, [setInvestmentRecords, setUnsettledPool]);
 
   const updateInvestment = useCallback((id: string, updates: Partial<Omit<InvestmentRecord, 'id' | 'createdAt'>>) => {
+    const old = investmentRecords.find(r => r.id === id);
+    // 项目由「未结清」变为「结清」时，若 (已收本金+已收利息) < (投入本金+应收利息)，把差额挂入未结清本金池
+    if (old && old.status !== 'settled' && updates.status === 'settled') {
+      const merged: InvestmentRecord = { ...old, ...updates };
+      const shortfall = (merged.principal + getExpectedTotalInterest(merged))
+        - (merged.returnedPrincipal + merged.returnedInterest);
+      if (shortfall > 0) {
+        setUnsettledPool(prev => prev + shortfall);
+      }
+    }
     setInvestmentRecords(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
-  }, [setInvestmentRecords]);
+  }, [investmentRecords, setInvestmentRecords, setUnsettledPool]);
 
   const deleteInvestment = useCallback((id: string) => {
     setInvestmentRecords(prev => prev.filter(r => r.id !== id));
@@ -92,10 +144,16 @@ export function useInvestData() {
       .reduce((sum, r) => sum + r.amount, 0);
   }, [capitalRecords]);
 
-  // 自有本金 = 总本金 - 贷款总额
+  // 自有本金 = 基数 + (总利润 - 快照利润) - (还款利息 - 快照利息) - (还款本金 - 快照本金)
   const getOwnCapital = useCallback(() => {
-    return getTotalCapital() - getTotalLoan();
-  }, [getTotalCapital, getTotalLoan]);
+    const totalProfit = investmentRecords.reduce((sum, r) => sum + r.returnedInterest, 0);
+    const repaidInterest = repaymentRecords.reduce((sum, r) => sum + r.interest, 0);
+    const repaidPrincipal = repaymentRecords.reduce((sum, r) => sum + r.principal, 0);
+    return ownCapitalBase.base
+      + (totalProfit - ownCapitalBase.snapshotProfit)
+      - (repaidInterest - ownCapitalBase.snapshotInterest)
+      - (repaidPrincipal - ownCapitalBase.snapshotPrincipal);
+  }, [investmentRecords, repaymentRecords, ownCapitalBase]);
 
   // 贷款剩余应还本金
   const getLoanBalance = useCallback(() => {
@@ -160,7 +218,8 @@ export function useInvestData() {
           const year = Math.floor(m / 12);
           const monthIdx = (m % 12) + 1;
           const monthKey = `${year}-${String(monthIdx).padStart(2, '0')}`;
-          const profit = inv.principal * (inv.interestRate / 100) * inv.settlementFrequency;
+          const perTimeProfit = inv.principal * (inv.interestRate / 100);
+          const profit = perTimeProfit * inv.settlementFrequency;
 
           if (!monthMap.has(monthKey)) {
             monthMap.set(monthKey, { month: monthKey, totalProfit: 0, items: [] });
@@ -172,6 +231,8 @@ export function useInvestData() {
             projectName: inv.name,
             amount: profit,
             settlementType: 'continuous',
+            perTimeProfit,
+            times: inv.settlementFrequency,
           });
         }
       }
@@ -448,14 +509,13 @@ export function useInvestData() {
       });
     }
 
-    // 5. 借款4 - 借呗（6笔先息后本）
+    // 5. 借款4 - 借呗（5笔先息后本）
     const jiebeiLoans = [
       { name: '借呗-1', amount: 89122.99, periods: 9, monthlyPay: 359.16, rate: 0.00403, start: '2026-09-04' },
       { name: '借呗-2', amount: 14510.59, periods: 9, monthlyPay: 202.42, rate: 0.01395, start: '2026-09-04' },
       { name: '借呗-3', amount: 100000, periods: 9, monthlyPay: 1395, rate: 0.01395, start: '2026-09-04' },
       { name: '借呗-4', amount: 50000, periods: 10, monthlyPay: 697.5, rate: 0.01395, start: '2026-09-04' },
-      { name: '借呗-5', amount: 50000, periods: 10, monthlyPay: 697.5, rate: 0.01395, start: '2026-09-04' },
-      { name: '借呗-6', amount: 30000, periods: 12, monthlyPay: 405, rate: 0.0135, start: '2026-09-04' },
+      { name: '借呗-5', amount: 30000, periods: 12, monthlyPay: 405, rate: 0.0135, start: '2026-09-04' },
     ];
 
     for (const jb of jiebeiLoans) {
@@ -654,10 +714,54 @@ export function useInvestData() {
     setInitialized(true);
   }, [setCapitalRecords, setRepaymentRecords, setInvestmentRecords, setInitialized, initialized]);
 
+  // ===== 数据导入 / 导出 / 清空 =====
+  const exportData = useCallback(() => {
+    return JSON.stringify({
+      version: 7,
+      exportedAt: new Date().toISOString(),
+      capitalRecords,
+      repaymentRecords,
+      investmentRecords,
+      unsettledPool,
+      ownCapitalBase,
+    }, null, 2);
+  }, [capitalRecords, repaymentRecords, investmentRecords, unsettledPool, ownCapitalBase]);
+
+  const importData = useCallback((json: string): boolean => {
+    try {
+      const data = JSON.parse(json);
+      if (!Array.isArray(data.capitalRecords) || !Array.isArray(data.repaymentRecords) || !Array.isArray(data.investmentRecords)) {
+        return false;
+      }
+      setCapitalRecords(data.capitalRecords);
+      setRepaymentRecords(data.repaymentRecords);
+      setInvestmentRecords(data.investmentRecords);
+      setUnsettledPool(typeof data.unsettledPool === 'number' ? data.unsettledPool : 0);
+      setOwnCapitalBase(data.ownCapitalBase && typeof data.ownCapitalBase.base === 'number'
+        ? data.ownCapitalBase
+        : { base: 0, snapshotProfit: 0, snapshotInterest: 0, snapshotPrincipal: 0 });
+      setInitialized(true);
+      return true;
+    } catch (e) {
+      console.error('导入数据失败:', e);
+      return false;
+    }
+  }, [setCapitalRecords, setRepaymentRecords, setInvestmentRecords, setUnsettledPool, setOwnCapitalBase, setInitialized]);
+
+  const clearAllData = useCallback(() => {
+    setCapitalRecords([]);
+    setRepaymentRecords([]);
+    setInvestmentRecords([]);
+    setUnsettledPool(0);
+    setOwnCapitalBase({ base: 0, snapshotProfit: 0, snapshotInterest: 0, snapshotPrincipal: 0 });
+    setInitialized(true); // 阻止 initializeData 重新填充种子数据
+  }, [setCapitalRecords, setRepaymentRecords, setInvestmentRecords, setUnsettledPool, setOwnCapitalBase, setInitialized]);
+
   return {
     capitalRecords,
     repaymentRecords,
     investmentRecords,
+    unsettledPool,
     initialized,
     addCapital,
     updateCapital,
@@ -678,5 +782,8 @@ export function useInvestData() {
     getMonthlyProfits,
     getMonthlyPaymentDetails,
     initializeData,
+    exportData,
+    importData,
+    clearAllData,
   };
 }

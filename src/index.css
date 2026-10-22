@@ -85,4 +85,22 @@
   html {
     font-size: 14px;
   }
+
+  /* 防止 iOS Safari 在输入框 focus 时自动放大页面：字号需 >= 16px */
+  input,
+  textarea,
+  select,
+  input[type="date"],
+  input[type="number"],
+  input[type="text"] {
+    font-size: 16px !important;
+  }
+
+  /* 日期框收窄，避免在窄屏下超出容器范围 */
+  input[type="date"] {
+    min-width: 0;
+    width: 100%;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }

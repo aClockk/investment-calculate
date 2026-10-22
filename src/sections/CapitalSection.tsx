@@ -191,7 +191,7 @@ export function CapitalSection({
         <div className="bg-white rounded-xl border p-5 shadow-sm">
           <p className="text-muted-foreground text-sm mb-1">自有本金</p>
           <p className="text-xl font-bold text-green-600">{formatCurrency(ownCapital)}</p>
-          <p className="text-xs text-muted-foreground mt-1">项目投入 - 贷款</p>
+          <p className="text-xs text-muted-foreground mt-1">初始基数 + 利润 - 还款</p>
         </div>
         <div className="bg-white rounded-xl border p-5 shadow-sm">
           <p className="text-muted-foreground text-sm mb-1">贷款剩余应还</p>
@@ -211,15 +211,15 @@ export function CapitalSection({
 
       {/* 资金表格 */}
       <div className="rounded-lg border overflow-x-auto">
-        <Table>
+        <Table className="min-w-[720px]">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[40px]"></TableHead>
               <TableHead>名称</TableHead>
               <TableHead>类型</TableHead>
               <TableHead className="text-right">金额</TableHead>
-              <TableHead className="hidden sm:table-cell">日期</TableHead>
-              <TableHead className="hidden md:table-cell">备注</TableHead>
+              <TableHead>日期</TableHead>
+              <TableHead>贷款方式</TableHead>
               <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -259,8 +259,12 @@ export function CapitalSection({
                         </span>
                       </TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(record.amount)}</TableCell>
-                      <TableCell className="hidden sm:table-cell">{formatDate(record.date)}</TableCell>
-                      <TableCell className="hidden md:table-cell max-w-[150px] truncate">{record.remark || '-'}</TableCell>
+                      <TableCell>{formatDate(record.date)}</TableCell>
+                      <TableCell>
+                        {record.type === 'loan' && record.loanDetails
+                          ? getRepaymentTypeLabel(record.loanDetails.repaymentType)
+                          : '-'}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1" onClick={e => e.stopPropagation()}>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(record)}>
@@ -415,14 +419,14 @@ export function CapitalSection({
               <div className="space-y-4 border rounded-lg p-4 bg-gray-50">
                 <p className="font-medium text-sm">贷款详情</p>
                 <div className="space-y-2">
-                  <Label>还款方式</Label>
+                  <Label>贷款方式</Label>
                   <Select value={formData.repaymentType} onValueChange={(v: RepaymentType) => setFormData(prev => ({ ...prev, repaymentType: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="equal_interest">等额本息</SelectItem>
                       <SelectItem value="equal_principal">等额本金</SelectItem>
                       <SelectItem value="interest_first">先息后本</SelectItem>
-                      <SelectItem value="lump_sum">到期一次性</SelectItem>
+                      <SelectItem value="lump_sum">一次结清</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -446,7 +450,7 @@ export function CapitalSection({
                     <Input type="number" step="0.01" placeholder="自动计算" value={formData.monthlyRate ? (Number(formData.monthlyRate) * 12).toFixed(2) : ''} readOnly className="bg-gray-100" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>开始日期</Label>
                     <Input type="date" value={formData.loanStartDate} onChange={e => setFormData(prev => ({ ...prev, loanStartDate: e.target.value }))} />
@@ -459,10 +463,6 @@ export function CapitalSection({
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label>备注</Label>
-              <Textarea placeholder="可选填" value={formData.remark} onChange={e => setFormData(prev => ({ ...prev, remark: e.target.value }))} />
-            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
               <Button type="submit">{editingRecord ? '保存' : '添加'}</Button>
@@ -478,7 +478,7 @@ export function CapitalSection({
             <DialogTitle>{repaymentDialog.isExtra ? '提前还款' : '记录还款'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleAddRepayment} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>期数</Label>
                 <Input type="number" placeholder="第几期" value={repaymentForm.period} onChange={e => setRepaymentForm(prev => ({ ...prev, period: e.target.value }))} required />
