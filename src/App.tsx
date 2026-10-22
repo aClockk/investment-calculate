@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useInvestData } from '@/hooks/useInvestData';
 import { CapitalSection } from '@/sections/CapitalSection';
 import { InvestmentSection } from '@/sections/InvestmentSection';
@@ -13,7 +13,6 @@ export default function App() {
     repaymentRecords,
     investmentRecords,
     unsettledPool,
-    initialized,
     addCapital,
     updateCapital,
     deleteCapital,
@@ -29,7 +28,6 @@ export default function App() {
     getProfitSummary,
     getMonthlyProfits,
     getMonthlyPaymentDetails,
-    initializeData,
     exportData,
     importData,
     clearAllData,
@@ -67,11 +65,7 @@ export default function App() {
     e.target.value = ''; // 允许重复导入同一文件
   };
 
-  useEffect(() => {
-    if (!initialized) {
-      initializeData();
-    }
-  }, [initialized, initializeData]);
+  // 默认不填充任何种子数据，页面初始为空；如需数据请通过「导入」恢复。
 
   const totalCapital = getTotalCapital();
   const totalLoan = getTotalLoan();
