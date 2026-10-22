@@ -10,8 +10,7 @@ const UNSETTLED_POOL_KEY = 'invest_unsettled_pool_v7';
 const OWN_CAPITAL_BASE_KEY = 'invest_own_capital_base_v7';
 
 // 自有本金基数（含快照），作为数据一部分持久化，可随导出/导入/清空变动。
-// base = 初始数据下“总本金 - 贷款剩余应还” = 1270000 - 717181.88 = 552818.12；
-// 快照为该基数对应时种子数据已存在的累计流水，只计算此后增量，避免重复扣减。
+// 默认全 0：页面初始不内置任何数据，基数由「导入」的 JSON 或后续流水决定。
 interface OwnCapitalBase {
   base: number;
   snapshotProfit: number;
@@ -19,10 +18,10 @@ interface OwnCapitalBase {
   snapshotPrincipal: number;
 }
 const DEFAULT_OWN_CAPITAL_BASE: OwnCapitalBase = {
-  base: 552818.12,
+  base: 0,
   snapshotProfit: 0,
-  snapshotInterest: 11256.32,
-  snapshotPrincipal: 70378.80,
+  snapshotInterest: 0,
+  snapshotPrincipal: 0,
 };
 
 // 计算项目「应收利息总和」，用于结清时判断本+利是否收全：
