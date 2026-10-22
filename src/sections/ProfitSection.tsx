@@ -311,7 +311,7 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <p className="text-sm text-muted-foreground">
               根据当前时间，次月为 <span className="font-medium text-foreground">{nextMonth}</span>。请勾选下个月需要结清的项目本金和/或利息。
             </p>
