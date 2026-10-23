@@ -55,6 +55,7 @@ export interface InvestmentRecord {
   returnedPrincipal: number;
   returnedInterest: number;
   remainingPrincipal: number;
+  settledPeriods?: number;     // 一直结：已结算的期数（老数据可能缺失，视为 0）
   settlementType: SettlementType;
   status: InvestmentStatus;
   startDate: string;

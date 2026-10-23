@@ -3,21 +3,14 @@ import { ChevronDown, ChevronUp, TrendingUp, CreditCard, PiggyBank, Calculator, 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { formatCurrency, getSettlementTypeLabel } from '@/lib/utils';
+import { formatCurrency, getSettlementTypeLabel, getSettledPeriodLabel } from '@/lib/utils';
 import type { InvestmentRecord, ProfitSummary, MonthlyProfit } from '@/types';
 
 interface ProfitSectionProps {
@@ -32,18 +25,22 @@ interface SettlementItem {
   projectName: string;
   settlementType: 'lump_sum' | 'continuous';
   remainingPrincipal: number;
-  nextMonthInterest: number;
+  startDate: string;
+  frequency: number;
+  settledPeriods: number;      // 已结算期数（当前进度）
+  perPeriodInterest: number;   // 每期利息 = 本金 × 点数/100
+  periodsToSettle: string;     // 一直结：本次结算期数
+  lumpSumInterest: number;     // 一次性结：应结利息
   settlePrincipal: boolean;
-  settleInterest: boolean;
   principalAmount: string;
-  interestAmount: string;
+  settleInterest: boolean;     // 一次性结专用
+  interestAmount: string;      // 一次性结专用
 }
 
 export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdateInvestment }: ProfitSectionProps) {
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
   const [settlementItems, setSettlementItems] = useState<SettlementItem[]>([]);
-  const [nextMonth, setNextMonth] = useState('');
 
   const toggleMonth = (month: string) => {
     setExpandedMonths(prev => {
@@ -54,48 +51,28 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
     });
   };
 
-  // 计算次月
-  const getNextMonth = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 2; // +2 because getMonth() is 0-based, we want next month
-    if (month > 12) {
-      return `${year + 1}-${String(month - 12).padStart(2, '0')}`;
-    }
-    return `${year}-${String(month).padStart(2, '0')}`;
-  };
-
-  // 计算某项目在某月的应收利息
-  const calculateMonthInterest = (inv: InvestmentRecord, monthKey: string) => {
-    if (inv.status === 'settled') return 0;
-    if (inv.settlementType === 'lump_sum' && inv.endDate) {
-      const endMonth = inv.endDate.substring(0, 7);
-      return endMonth === monthKey ? inv.principal * (inv.interestRate / 100) : 0;
-    } else if (inv.settlementType === 'continuous') {
-      return inv.principal * (inv.interestRate / 100) * inv.settlementFrequency;
-    }
-    return 0;
-  };
-
-  // 打开月度结算弹窗
+  // 打开结算弹窗：列出所有未结清项目，可提前结算
   const openSettlementDialog = () => {
-    const nm = getNextMonth();
-    setNextMonth(nm);
-
     const items: SettlementItem[] = records
       .filter(r => r.status === 'unsettled')
       .map(inv => {
-        const interest = calculateMonthInterest(inv, nm);
+        const perPeriodInterest = inv.principal * (inv.interestRate / 100);
+        const isLump = inv.settlementType === 'lump_sum';
         return {
           projectId: inv.id,
           projectName: inv.name,
           settlementType: inv.settlementType,
           remainingPrincipal: inv.remainingPrincipal,
-          nextMonthInterest: interest,
+          startDate: inv.startDate,
+          frequency: inv.settlementFrequency || 1,
+          settledPeriods: inv.settledPeriods ?? 0,
+          perPeriodInterest,
+          periodsToSettle: '0',
+          lumpSumInterest: isLump ? perPeriodInterest : 0,
           settlePrincipal: false,
-          settleInterest: false,
           principalAmount: String(inv.remainingPrincipal),
-          interestAmount: String(interest.toFixed(2)),
+          settleInterest: false,
+          interestAmount: isLump ? perPeriodInterest.toFixed(2) : '0',
         };
       });
 
@@ -116,7 +93,12 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
     let interest = 0;
     settlementItems.forEach(item => {
       if (item.settlePrincipal) principal += Number(item.principalAmount) || 0;
-      if (item.settleInterest) interest += Number(item.interestAmount) || 0;
+      if (item.settlementType === 'continuous') {
+        const n = Math.max(0, Math.floor(Number(item.periodsToSettle) || 0));
+        interest += n * item.perPeriodInterest;
+      } else if (item.settleInterest) {
+        interest += Number(item.interestAmount) || 0;
+      }
     });
     return { principal, interest, total: principal + interest };
   }, [settlementItems]);
@@ -124,23 +106,34 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
   // 确认结算
   const handleConfirmSettlement = () => {
     settlementItems.forEach(item => {
-      if (!item.settlePrincipal && !item.settleInterest) return;
-
       const inv = records.find(r => r.id === item.projectId);
       if (!inv) return;
 
       const principalAdd = item.settlePrincipal ? (Number(item.principalAmount) || 0) : 0;
-      const interestAdd = item.settleInterest ? (Number(item.interestAmount) || 0) : 0;
+      let interestAdd = 0;
+      let periodsAdd = 0;
+      if (item.settlementType === 'continuous') {
+        periodsAdd = Math.max(0, Math.floor(Number(item.periodsToSettle) || 0));
+        interestAdd = periodsAdd * item.perPeriodInterest;
+      } else if (item.settleInterest) {
+        interestAdd = Number(item.interestAmount) || 0;
+      }
+
+      // 无任何结算动作则跳过
+      if (principalAdd === 0 && interestAdd === 0 && periodsAdd === 0) return;
 
       const newReturnedPrincipal = inv.returnedPrincipal + principalAdd;
       const newReturnedInterest = inv.returnedInterest + interestAdd;
       const newRemainingPrincipal = Math.max(0, inv.principal - newReturnedPrincipal);
 
-      // 状态不再自动变更，仅能手动修改
+      // 状态不自动变更，仅能手动修改
       onUpdateInvestment(inv.id, {
         returnedPrincipal: newReturnedPrincipal,
         returnedInterest: newReturnedInterest,
         remainingPrincipal: newRemainingPrincipal,
+        ...(item.settlementType === 'continuous'
+          ? { settledPeriods: (inv.settledPeriods ?? 0) + periodsAdd }
+          : {}),
       });
     });
 
@@ -175,7 +168,7 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
         </div>
         <Button size="sm" variant="outline" onClick={openSettlementDialog}>
           <Calculator className="h-4 w-4 mr-1" />
-          月度结算
+          结算
         </Button>
       </div>
 
@@ -301,97 +294,134 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
         </div>
       </div>
 
-      {/* 月度结算弹窗 */}
+      {/* 结算弹窗 */}
       <Dialog open={settlementDialogOpen} onOpenChange={setSettlementDialogOpen}>
         <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckSquare className="h-5 w-5" />
-              {nextMonth} 月度结算
+              项目结算
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 min-w-0">
             <p className="text-sm text-muted-foreground">
-              根据当前时间，次月为 <span className="font-medium text-foreground">{nextMonth}</span>。请勾选下个月需要结清的项目本金和/或利息。
+              勾选需要结算的项目，可提前结算。「一直结」选择本次结算期数（每期利息 = 本金 × 点数），并可额外退回本金；「一次性结」可分别结清本金/利息。
             </p>
 
-            <div className="rounded-lg border overflow-x-auto">
-              <Table className="min-w-[640px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>项目名称</TableHead>
-                    <TableHead>结清方式</TableHead>
-                    <TableHead className="text-right">剩余本金</TableHead>
-                    <TableHead className="text-right">次月应收利息</TableHead>
-                    <TableHead className="text-center">结清本金</TableHead>
-                    <TableHead className="text-center">结清利息</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {settlementItems.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                        暂无未结清项目
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    settlementItems.map(item => (
-                      <TableRow key={item.projectId}>
-                        <TableCell className="font-medium">{item.projectName}</TableCell>
-                        <TableCell className="text-sm">{getSettlementTypeLabel(item.settlementType)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.remainingPrincipal)}</TableCell>
-                        <TableCell className="text-right text-green-600">{formatCurrency(item.nextMonthInterest)}</TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <Checkbox
-                              checked={item.settlePrincipal}
-                              onCheckedChange={(checked) => {
-                                updateSettlementItem(item.projectId, {
-                                  settlePrincipal: checked === true,
-                                  principalAmount: checked === true ? String(item.remainingPrincipal) : '0',
-                                });
-                              }}
+            {settlementItems.length === 0 ? (
+              <div className="text-center text-muted-foreground py-8">暂无未结清项目</div>
+            ) : (
+              <div className="space-y-3">
+                {settlementItems.map(item => {
+                  const isContinuous = item.settlementType === 'continuous';
+                  const periodsNow = Math.max(0, Math.floor(Number(item.periodsToSettle) || 0));
+                  const interestNow = isContinuous
+                    ? periodsNow * item.perPeriodInterest
+                    : (item.settleInterest ? (Number(item.interestAmount) || 0) : 0);
+                  const principalNow = item.settlePrincipal ? (Number(item.principalAmount) || 0) : 0;
+                  return (
+                    <div key={item.projectId} className="rounded-lg border p-3 space-y-3">
+                      {/* 项目头部 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium truncate">{item.projectName}</span>
+                          <span className={`shrink-0 text-xs px-2 py-0.5 rounded border ${isContinuous ? 'text-blue-600 bg-blue-50 border-blue-200' : 'text-purple-600 bg-purple-50 border-purple-200'}`}>
+                            {getSettlementTypeLabel(item.settlementType)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">剩余本金 {formatCurrency(item.remainingPrincipal)}</span>
+                      </div>
+
+                      {isContinuous ? (
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted-foreground">
+                            当前进度：<span className="font-medium text-foreground">已结算至 {getSettledPeriodLabel(item.startDate, item.frequency, item.settledPeriods)}</span>
+                            <span className="ml-2">每期利息 {formatCurrency(item.perPeriodInterest)}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Label className="text-sm">本次结算期数</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="1"
+                              className="w-24 h-8"
+                              value={item.periodsToSettle}
+                              onChange={e => updateSettlementItem(item.projectId, { periodsToSettle: e.target.value })}
                             />
-                            {item.settlePrincipal && (
-                              <Input
-                                type="number"
-                                step="0.01"
-                                className="w-24 h-7 text-xs"
-                                value={item.principalAmount}
-                                onChange={e => updateSettlementItem(item.projectId, { principalAmount: e.target.value })}
-                              />
+                            {periodsNow > 0 && (
+                              <span className="text-xs text-green-600">
+                                利息 {formatCurrency(periodsNow * item.perPeriodInterest)} · 结算至 {getSettledPeriodLabel(item.startDate, item.frequency, item.settledPeriods + periodsNow)}
+                              </span>
                             )}
                           </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          应结利息：<span className="font-medium text-green-600">{formatCurrency(item.lumpSumInterest)}</span>
+                        </div>
+                      )}
+
+                      {/* 本金 / 利息 勾选 */}
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={item.settlePrincipal}
+                            onCheckedChange={(checked) => {
+                              updateSettlementItem(item.projectId, {
+                                settlePrincipal: checked === true,
+                                principalAmount: checked === true ? String(item.remainingPrincipal) : '0',
+                              });
+                            }}
+                          />
+                          <span className="text-sm">{isContinuous ? '退回本金' : '结清本金'}</span>
+                          {item.settlePrincipal && (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              className="w-28 h-7 text-xs"
+                              value={item.principalAmount}
+                              onChange={e => updateSettlementItem(item.projectId, { principalAmount: e.target.value })}
+                            />
+                          )}
+                        </div>
+
+                        {!isContinuous && (
+                          <div className="flex items-center gap-2">
                             <Checkbox
                               checked={item.settleInterest}
                               onCheckedChange={(checked) => {
                                 updateSettlementItem(item.projectId, {
                                   settleInterest: checked === true,
-                                  interestAmount: checked === true ? String(item.nextMonthInterest.toFixed(2)) : '0',
+                                  interestAmount: checked === true ? item.lumpSumInterest.toFixed(2) : '0',
                                 });
                               }}
                             />
+                            <span className="text-sm">结清利息</span>
                             {item.settleInterest && (
                               <Input
                                 type="number"
                                 step="0.01"
-                                className="w-24 h-7 text-xs"
+                                className="w-28 h-7 text-xs"
                                 value={item.interestAmount}
                                 onChange={e => updateSettlementItem(item.projectId, { interestAmount: e.target.value })}
                               />
                             )}
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                        )}
+                      </div>
+
+                      {/* 本项小计 */}
+                      {(principalNow > 0 || interestNow > 0) && (
+                        <div className="text-xs text-muted-foreground border-t pt-2">
+                          本项小计：本金 {formatCurrency(principalNow)} + 利息 {formatCurrency(interestNow)} = <span className="font-medium text-foreground">{formatCurrency(principalNow + interestNow)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* 结算汇总 */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-2">
@@ -404,7 +434,7 @@ export function ProfitSection({ records, profitSummary, monthlyProfits, onUpdate
                 <span className="font-medium text-green-600">{formatCurrency(settlementTotals.interest)}</span>
               </div>
               <div className="border-t pt-2 flex justify-between">
-                <span className="font-medium">{nextMonth} 应结清总额</span>
+                <span className="font-medium">应结清总额</span>
                 <span className="text-xl font-bold text-blue-700">{formatCurrency(settlementTotals.total)}</span>
               </div>
             </div>

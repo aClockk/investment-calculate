@@ -404,7 +404,7 @@ export function CapitalSection({
             </div>
             <div className="space-y-2">
               <Label>名称</Label>
-              <Input placeholder="如：小鱼、杜小满" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
+              <Input placeholder="请输入名称" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} required />
             </div>
             <div className="space-y-2">
               <Label>金额</Label>
@@ -442,11 +442,11 @@ export function CapitalSection({
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>月利率(%)</Label>
-                    <Input type="number" step="0.0001" placeholder="如：0.5" value={formData.monthlyRate} onChange={e => setFormData(prev => ({ ...prev, monthlyRate: e.target.value }))} />
+                    <Label>月利率</Label>
+                    <Input type="number" step="0.0001" placeholder="请输入小数月利率" value={formData.monthlyRate} onChange={e => setFormData(prev => ({ ...prev, monthlyRate: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
-                    <Label>年利率(%)</Label>
+                    <Label>年利率</Label>
                     <Input type="number" step="0.01" placeholder="自动计算" value={formData.monthlyRate ? (Number(formData.monthlyRate) * 12).toFixed(2) : ''} readOnly className="bg-gray-100" />
                   </div>
                 </div>

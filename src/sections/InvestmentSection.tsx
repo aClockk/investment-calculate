@@ -277,12 +277,12 @@ export function InvestmentSection({ records, unsettledPool, onAdd, onUpdate, onD
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>利息点数 (%)</Label>
-                <Input type="number" step="0.01" placeholder="如：6" value={formData.interestRate} onChange={e => setFormData(prev => ({ ...prev, interestRate: e.target.value }))} required />
+                <Input type="number" step="0.01" placeholder="请输入利息点数" value={formData.interestRate} onChange={e => setFormData(prev => ({ ...prev, interestRate: e.target.value }))} required />
               </div>
               {formData.settlementType === 'continuous' && (
                 <div className="space-y-2">
                   <Label>每月结算次数</Label>
-                  <Input type="number" min="1" placeholder="如：3" value={formData.settlementFrequency} onChange={e => setFormData(prev => ({ ...prev, settlementFrequency: e.target.value }))} required />
+                  <Input type="number" min="1" placeholder="请输入次数" value={formData.settlementFrequency} onChange={e => setFormData(prev => ({ ...prev, settlementFrequency: e.target.value }))} required />
                 </div>
               )}
             </div>
